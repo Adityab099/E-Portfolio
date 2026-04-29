@@ -1,73 +1,159 @@
-# React + TypeScript + Vite
+# E-Portfolio
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, animated personal portfolio built with React, TypeScript, and Vite.  
+It showcases profile, skills, projects, achievements, contact form flow, and an academic handwritten essay submission section with live preview + download.
 
-Currently, two official plugins are available:
+## Live Project
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Production URL:** [https://https.xxxxx](https://https.xxxxx)
 
-## React Compiler
+> Replace this with your final deployed URL when ready.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Key Features
 
-## Expanding the ESLint configuration
+- Responsive one-page portfolio with smooth UI animations (`framer-motion`)
+- Light/Dark theme toggle with local storage persistence
+- Project cards with interactive modal details
+- Contact form with validation and prefilled `mailto:` flow
+- Handwritten Essay Submission:
+  - Upload single PDF or multiple image pages
+  - Auto-convert images to combined PDF (`jspdf`)
+  - In-browser preview and download support
+  - Default essay PDF (`/1.pdf`) shown on page load/reload
+  - Optional Netlify Function upload (graceful fallback if endpoint unavailable)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Tech Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- **Frontend:** React 19, TypeScript, Vite
+- **Animation/UI:** Framer Motion, React Icons
+- **PDF Processing:** jsPDF
+- **Serverless:** Netlify Functions (`upload-latest`)
+- **Tooling:** ESLint, TypeScript project references
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Project Structure
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+E-portfolio/
+├─ src/
+│  ├─ App.tsx
+│  └─ portfolio.css
+├─ netlify/
+│  └─ functions/
+│     └─ upload-latest.js
+├─ public/
+│  ├─ 1.pdf
+│  ├─ 1.png
+│  └─ Resume.pdf
+├─ package.json
+└─ vite.config.ts
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Architecture Diagram (Mermaid)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```mermaid
+flowchart TD
+    U[User Browser] --> V[React App - Vite Build]
+    V --> S1[Portfolio Sections]
+    V --> S2[Essay Upload Module]
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+    S2 -->|PDF or Images| P1[Client-side Processing]
+    P1 -->|Images| J[jsPDF Merge]
+    P1 -->|PDF| L[Local Blob URL]
+    J --> L
+    L --> PR[Preview iframe + Download]
+
+    S2 -->|Optional POST| NF[Netlify Function /upload-latest]
+    NF -->|Returns data URL| PR
+    NF -->|Unavailable/404| FB[Silent fallback to local preview]
+    FB --> PR
 ```
+
+## Handwritten Essay Workflow
+
+1. Default file `/1.pdf` is loaded automatically on initial page load.
+2. User uploads either:
+   - one PDF, or
+   - multiple image pages (`.jpg/.jpeg/.png`)
+3. If images are uploaded, app generates a single multi-page PDF in browser.
+4. Preview + download are immediately available from local blob/data URL.
+5. App optionally tries Netlify upload endpoint:
+   - on success: preview may use returned URL
+   - on failure (e.g., 404): no blocking error shown; local preview/download continue
+
+## Getting Started
+
+### 1) Clone and install
+
+```bash
+git clone <your-repo-url>
+cd E-portfolio
+npm install
+```
+
+### 2) Run locally
+
+```bash
+npm run dev
+```
+
+Open the URL shown in terminal (usually `http://localhost:5173`).
+
+### 3) Build for production
+
+```bash
+npm run build
+```
+
+### 4) Preview production build
+
+```bash
+npm run preview
+```
+
+## Netlify Functions
+
+Current function:
+
+- `/.netlify/functions/upload-latest` (POST)
+  - Input JSON:
+    - `file` (base64 string, required)
+    - `contentType` (optional, defaults `application/pdf`)
+    - `filename` (optional)
+  - Returns:
+    - `success`
+    - `url` (inline data URL)
+    - `filename`
+
+Environment variable supported in frontend:
+
+- `VITE_UPLOAD_LATEST_ENDPOINT` (optional override for upload endpoint)
+
+## Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Type-check and build production bundle
+- `npm run preview` - Preview built app locally
+- `npm run lint` - Run ESLint
+
+## Deployment Notes
+
+- Deploy to Netlify for serverless function support.
+- Ensure static assets exist in `public/`:
+  - `1.pdf` (default essay preview file)
+  - `Resume.pdf`
+  - `1.png` (profile image)
+- If functions are unavailable, app still works with local essay preview/download.
+
+## Future Improvements
+
+- Persist latest uploaded essay in object storage (S3/R2) instead of data URL response
+- Add CAPTCHA / spam protection for contact interactions
+- Add tests for upload and preview flows (unit + integration)
+- Add analytics and performance monitoring
+
+## Author
+
+**Aditya Kumar Bhardwaj**
+
+- LinkedIn: [https://www.linkedin.com/in/aditya-bhardwaj-b89381297/](https://www.linkedin.com/in/aditya-bhardwaj-b89381297/)
+- GitHub: [https://github.com/099Aditya](https://github.com/099Aditya)
