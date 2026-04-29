@@ -1,6 +1,8 @@
-const Busboy = require('busboy')
-const { connectLambda, getStore } = require('@netlify/blobs')
-
+// JSON-only upload endpoint (Netlify Functions compatible).
+// Expected POST JSON body:
+//   { file: "<base64>", contentType?: "application/pdf", filename?: string }
+//
+// It does not store anywhere. It returns a previewable data URL.
 exports.handler = async (event) => {
   console.log('[upload-latest] hit', {
     httpMethod: event.httpMethod,
@@ -16,15 +18,6 @@ exports.handler = async (event) => {
       }
     }
 
-    const contentType = event.headers?.['content-type'] || event.headers?.['Content-Type']
-    if (!contentType) {
-      return {
-        statusCode: 400,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ success: false, message: 'Missing content-type header' }),
-      }
-    }
-
     if (!event.body) {
       return {
         statusCode: 400,
@@ -33,66 +26,73 @@ exports.handler = async (event) => {
       }
     }
 
-    // Netlify Blobs in Lambda-compat mode needs manual initialization.
-    connectLambda(event)
-    const store = getStore('academic-submissions')
+    const rawBody = event.isBase64Encoded
+      ? Buffer.from(event.body, 'base64').toString('utf8')
+      : event.body
 
-    // Netlify can send body as base64 for non-text.
-    const bodyBuffer = Buffer.from(
-      event.isBase64Encoded ? event.body : event.body,
-      event.isBase64Encoded ? 'base64' : 'utf8'
-    )
+    let parsed
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      return {
+        statusCode: 400,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ success: false, message: 'Invalid JSON body' }),
+      }
+    }
 
-    const fileUpload = await new Promise((resolve, reject) => {
-      const bb = new Busboy({
-        headers: { 'content-type': contentType },
-        limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
-      })
+    const fileB64 = parsed?.file
+    const contentType = parsed?.contentType || 'application/pdf'
+    const filename = parsed?.filename || 'handwritten-essay.pdf'
 
-      let fileBuffer = Buffer.alloc(0)
-      let mimeType = 'application/pdf'
-      let uploadedName = 'handwritten-essay.pdf'
+    if (!fileB64 || typeof fileB64 !== 'string') {
+      return {
+        statusCode: 400,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ success: false, message: 'Missing "file" base64 string' }),
+      }
+    }
 
-      bb.on('file', (_name, file, info) => {
-        uploadedName = info?.filename || uploadedName
-        mimeType = info?.mimeType || mimeType
+    // Support both "base64" and "data:<mime>;base64,<base64>"
+    const clean = fileB64.includes(',') ? fileB64.split(',')[1] : fileB64
 
-        file.on('data', (chunk) => {
-          fileBuffer = Buffer.concat([fileBuffer, chunk])
-        })
-      })
+    let bytes
+    try {
+      bytes = Buffer.from(clean, 'base64')
+    } catch {
+      return {
+        statusCode: 400,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ success: false, message: 'Invalid base64 content' }),
+      }
+    }
 
-      bb.on('error', reject)
-      bb.on('finish', () => resolve({ fileBuffer, mimeType, uploadedName }))
-      bb.end(bodyBuffer)
-    })
+    // Inline preview safety: reject huge files to prevent timeouts.
+    if (bytes.byteLength > 10 * 1024 * 1024) {
+      return {
+        statusCode: 413,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          success: false,
+          message: 'File too large for inline preview. Please use fewer pages or smaller images.',
+        }),
+      }
+    }
 
-    const blobKey = 'academic/latest.pdf'
-    await store.set(blobKey, fileUpload.fileBuffer, {
-      metadata: {
-        contentType: fileUpload.mimeType || 'application/pdf',
-        uploadedName: fileUpload.uploadedName,
-      },
-    })
-
-    const proto = event.headers?.['x-forwarded-proto'] || 'https'
-    const host = event.headers?.host || 'localhost'
-    const base = `${proto}://${host}`
-    const url = `${base}/.netlify/functions/serve-essay?key=${encodeURIComponent(blobKey)}`
+    const dataUrl = `data:${contentType};base64,${clean}`
 
     return {
       statusCode: 200,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         success: true,
-        message: 'function working',
-        url,
-        key: blobKey,
-        filename: fileUpload.uploadedName,
+        message: 'upload successful',
+        url: dataUrl,
+        filename,
       }),
     }
   } catch (err) {
-    console.error('[upload-latest] error', err)
+    console.error('[upload-latest] fatal', err)
     return {
       statusCode: 500,
       headers: { 'content-type': 'application/json' },

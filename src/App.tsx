@@ -252,8 +252,11 @@ export default function App() {
   const [contactSent, setContactSent] = useState(false)
 
   // Academic Submission (client-side only): upload → preview → download.
-  const [essayUrl, setEssayUrl] = useState<string | null>(null)
-  const [essayDownloadName, setEssayDownloadName] = useState<string | null>(null)
+  // Keep a default PDF visible/downloadable on first load and after reset.
+  const DEFAULT_ESSAY_URL = '/1.pdf'
+  const DEFAULT_ESSAY_NAME = '1.pdf'
+  const [essayUrl, setEssayUrl] = useState<string | null>(DEFAULT_ESSAY_URL)
+  const [essayDownloadName, setEssayDownloadName] = useState<string | null>(DEFAULT_ESSAY_NAME)
   const [essayPagesCount, setEssayPagesCount] = useState<number | null>(null)
   const [essayUpdatedAt, setEssayUpdatedAt] = useState<string | null>(null)
   const [essayLoading, setEssayLoading] = useState(false)
@@ -323,17 +326,32 @@ export default function App() {
     return blob
   }
 
+  async function blobToBase64(blob: Blob) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(blob)
+    })
+    // data:<mime>;base64,<base64> -> extract the <base64>
+    const parts = dataUrl.split(',')
+    return parts.length === 2 ? parts[1] : dataUrl
+  }
+
   async function uploadLatestEssayPdf(pdfBlob: Blob, fileName: string) {
     const endpoint =
       (import.meta.env.VITE_UPLOAD_LATEST_ENDPOINT as string | undefined) ||
       '/.netlify/functions/upload-latest'
 
-    const form = new FormData()
-    form.append('file', pdfBlob, fileName)
+    const base64 = await blobToBase64(pdfBlob)
+    const contentType = pdfBlob.type || 'application/pdf'
 
     const res = await fetch(endpoint, {
       method: 'POST',
-      body: form,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ file: base64, contentType, filename: fileName }),
     })
 
     if (!res.ok) {
@@ -346,8 +364,10 @@ export default function App() {
       throw new Error(`Upload failed (${res.status}). ${text}`.trim())
     }
 
-    const json = (await res.json()) as { url?: string }
-    if (!json.url) throw new Error('Upload succeeded but no URL returned.')
+    const json = (await res.json()) as { success?: boolean; url?: string; message?: string }
+    if (!json.url || json.success === false) {
+      throw new Error(`Upload did not return a URL. ${json.message || ''}`.trim())
+    }
     return json.url
   }
 
@@ -378,10 +398,14 @@ export default function App() {
         setEssayPagesCount(null)
         setEssayUpdatedAt(new Date().toLocaleString())
 
-        // Upload to S3 (via Netlify function) so everyone can access it by URL.
-        const uploadUrl = await uploadLatestEssayPdf(file, file.name || 'handwritten-essay.pdf')
-        setEssayUrl(uploadUrl)
-        setEssayDownloadName('Handwritten_Essay.pdf')
+        // Optional remote upload: keep local preview/download if endpoint is unavailable.
+        try {
+          const uploadUrl = await uploadLatestEssayPdf(file, file.name || 'handwritten-essay.pdf')
+          setEssayUrl(uploadUrl)
+          setEssayDownloadName('Handwritten_Essay.pdf')
+        } catch {
+          // Intentionally ignore upload endpoint errors (e.g. 404 in local/dev).
+        }
         return
       }
 
@@ -404,8 +428,12 @@ export default function App() {
       setEssayPagesCount(imageFiles.length)
       setEssayUpdatedAt(new Date().toLocaleString())
 
-      const uploadUrl = await uploadLatestEssayPdf(blob, 'Handwritten_Essay.pdf')
-      setEssayUrl(uploadUrl)
+      try {
+        const uploadUrl = await uploadLatestEssayPdf(blob, 'Handwritten_Essay.pdf')
+        setEssayUrl(uploadUrl)
+      } catch {
+        // Intentionally ignore upload endpoint errors (e.g. 404 in local/dev).
+      }
     } catch (err) {
       setEssayErr(err instanceof Error ? err.message : 'Failed to generate preview.')
     } finally {
@@ -934,8 +962,8 @@ export default function App() {
                         className="btn btnGhost"
                         onClick={() => {
                           if (essayUrl?.startsWith('blob:')) URL.revokeObjectURL(essayUrl)
-                          setEssayUrl(null)
-                          setEssayDownloadName(null)
+                          setEssayUrl(DEFAULT_ESSAY_URL)
+                          setEssayDownloadName(DEFAULT_ESSAY_NAME)
                           setEssayPagesCount(null)
                           setEssayUpdatedAt(null)
                           setEssayErr(null)
