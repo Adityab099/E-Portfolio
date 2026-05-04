@@ -5,7 +5,7 @@ It showcases profile, skills, projects, achievements, contact form flow, and an 
 
 ## Live Project
 
-- **Production URL:** [https://https.xxxxx](https://https.xxxxx)
+- **Production URL:** [https://https.xxxxx](https://adityab099.github.io/E-Portfolio/)
 
 > Replace this with your final deployed URL when ready.
 
